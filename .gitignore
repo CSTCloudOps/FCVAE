@@ -1,0 +1,4 @@
+/csv/*
+/ckpt/*
+/logs/*
+/npy/*

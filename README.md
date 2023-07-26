@@ -13,15 +13,15 @@ python train.py --data_dir ./data/Yahoo  --window 48  --condition_emb_dim 64  --
 
 | Parameter | Defination |
 |--------|--------|
-| data_dir   | 数据集地址  | 
-| window   | 窗口长度   | 
-|  condition_emb_dim  | conditon维度   | 
-| condition_mode   | condition类别，默认2   | 
-| save_file   | 结果保存文件地址   | 
-| gpu   | gpu卡号  | 
-| kernel_size   | LFM中小窗口长度   | 
-| stride   | LFM生成小窗口的步长   | 
-| dropout_rate   | Dropout比例   | 
+| data_dir   |  dataset address | 
+| window   | size of window   | 
+|  condition_emb_dim  | dimension of condition in CVAE | 
+| condition_mode   | condition class(default 2)   | 
+| save_file   | address of save file   | 
+| gpu   | gpu number | 
+| kernel_size   | size of small window in LFM   | 
+| stride   | stride in LFM when generating small windows   | 
+| dropout_rate   | dropout rate   | 
 
 ## Run All Results
 ```
