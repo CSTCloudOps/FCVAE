@@ -31,8 +31,6 @@ def complete_timestamp(timestamp, arrays=None):
             raise ValueError('The shape of ``arrays[{}]`` does not agree with '
                              'the shape of `timestamp` ({} vs {})'.
                              format(i, array.shape, timestamp.shape))
-
-    # sort the timestamp, and check the intervals
     src_index = np.argsort(timestamp)
     timestamp_sorted = timestamp[src_index]
     intervals = np.unique(np.diff(timestamp_sorted))

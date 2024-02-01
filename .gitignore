@@ -2,3 +2,6 @@
 /ckpt/*
 /logs/*
 /npy/*
+/.vscode/
+/git.sh
+/result.txt

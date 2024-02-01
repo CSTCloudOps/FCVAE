@@ -3,7 +3,6 @@ import os
 import logging
 import numpy as np
 import torch
-import traceback
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from model import MyVAE

@@ -6,39 +6,28 @@ import argparse
 from torch import optim
 from collections import OrderedDict
 import torch
-import os
 import numpy as np
 import pandas as pd
 import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.metrics import roc_auc_score
 import data_augment
-from get_f1_score import best_f1, delay_f1
+from get_f1_score import best_f1, delay_f1, best_f1_without_pointadjust
 from Attention import EncoderLayer_selfattn
+from sklearn.metrics import roc_auc_score
+
 
 class MyVAE(LightningModule):
+    '''Frequency-enhenced CVAE '''
+
     def __init__(self, hparams):
         super(MyVAE, self).__init__()
         self.save_hyperparameters()
         self.hp = hparams
-        self.window = hparams.window
-        self.latent_dim = hparams.latent_dim
-        self.hidden_dims = None
-        self.step_max = 0
         self.__build_model()
 
     def __build_model(self):
-
-        self.vae = CVAE(
-                self.hp,
-                self.hp.condition_emb_dim,
-                self.latent_dim,
-                1,
-                self.hidden_dims,
-                self.step_max,
-                self.window,
-                self.hp.batch_size,
-            )
+        self.vae = CVAE(self.hp)
         self.atten = nn.ModuleList(
             [
                 EncoderLayer_selfattn(
@@ -54,31 +43,23 @@ class MyVAE(LightningModule):
         )
 
     def forward(self, x, mode, mask):
-        x = x.view(-1, 1, self.window)
+        x = x.view(-1, 1, self.hp.window)
         return self.vae.forward(x, mode, mask)
 
     def loss(self, x, y_all, z_all, mode="train"):
         y = (y_all[:, -1]).unsqueeze(1)
-        if self.hp.use_label==1:
-            mask = torch.logical_not(torch.logical_or(y_all, z_all))
-        else:
-            mask = torch.logical_not(z_all)
+        mask = torch.logical_not(torch.logical_or(y_all, z_all))
         mu_x, var_x, rec_x, mu, var, loss = self.forward(
             x,
             "train",
             mask,
         )
-        loss_val = loss
-        if mode == "test":
-            mu_x_test, recon_prob = self.forward(x, "test", z_all)
-            return mu_x, var_x, recon_prob, mu_x_test
-        return loss_val
+        return loss
 
     def training_step(self, data_batch, batch_idx):
         x, y_all, z_all = data_batch
-        y_all2 = torch.zeros_like(y_all)
-        x, y_all2, z_all = self.batch_data_augmentation(x, y_all2, z_all)
-        loss_val = self.loss(x, y_all2, z_all)
+        x, y_all, z_all = self.batch_data_augmentation(x, y_all, z_all)
+        loss_val = self.loss(x, y_all, z_all)
         if self.trainer.strategy == "dp":
             loss_val = loss_val.unsqueeze(0)
         self.log("val_loss_train", loss_val, on_step=True, on_epoch=False, logger=True)
@@ -91,8 +72,7 @@ class MyVAE(LightningModule):
 
     def validation_step(self, data_batch, batch_idx):
         x, y_all, z_all = data_batch
-        y_all_wo_label = torch.zeros_like(y_all)
-        loss_val = self.loss(x, y_all_wo_label, z_all)
+        loss_val = self.loss(x, y_all, z_all)
         if self.trainer.strategy == "dp":
             loss_val = loss_val.unsqueeze(0)
         self.log("val_loss_valid", loss_val, on_step=True, on_epoch=True, logger=True)
@@ -107,7 +87,9 @@ class MyVAE(LightningModule):
         x, y_all, z_all = data_batch
         y = (y_all[:, -1]).unsqueeze(1)
         with torch.no_grad():
-            mu_x, var_x, recon_prob, mu_x_test = self.loss(x, y_all, z_all, "test")
+            mu_x_test, recon_prob = self.forward(x, "test", z_all)
+            mask = torch.logical_not(z_all)
+            mu_x, var_x, rec_x, mu, var, loss = self.forward(x, "train", mask)
         recon_prob = recon_prob[:, :, -1]
         output = OrderedDict(
             {
@@ -145,8 +127,10 @@ class MyVAE(LightningModule):
             k=150
         else:
             k=7
-        delay_f1_score, delay_precison, delay_recall,delay_predict = delay_f1(score, label,k)
-        best_f1_socre, best_precison,best_recall,best_predict = best_f1(score, label)
+        auc = roc_auc_score(label,score)
+        delay_f1_score, delay_precison, delay_recall, delay_predict = delay_f1(score, label, k)
+        best_f1_socre, best_precison, best_recall, best_predict = best_f1(score, label)
+        best_f1_socre_, best_precison_, best_recall_, best_predict_ = best_f1_without_pointadjust(score, label)
         df['delay_predict'] = delay_predict
         df['best_predict'] = best_predict
         df.to_csv(
@@ -156,19 +140,24 @@ class MyVAE(LightningModule):
         file_name = self.hp.save_file
         with open(file_name, "a") as f:
             f.write(
-                "max f1 score is %f %f %f delay f1 score is %f %f %f\n"
+                "Auc %f \nbest f1 score %f %f %f \nDelay f1 score  %f %f %f\nBest f1 without pointadjust %f %f %f\n"
                 % (
+                    auc,
                     best_f1_socre,
                     best_precison,
                     best_recall,
                     delay_f1_score,
                     delay_precison,
-                    delay_recall
+                    delay_recall,
+                    best_f1_socre_,
+                    best_precison_,
+                    best_recall_
                 )
             )
 
     def mydataloader(self, mode):
         dataset = UniDataset(
+            self.hp.use_label,
             self.hp.window,
             self.hp.data_dir,
             self.hp.data_name,
@@ -216,17 +205,15 @@ class MyVAE(LightningModule):
         parser.add_argument("--num_workers", default=8, type=int)
         parser.add_argument("--learning_rate", default=0.0005, type=float)
         parser.add_argument("--sliding_window_size", default=1, type=int)
-        parser.add_argument("--save_file", default="./result/base6_fix2.txt", type=str)
+        parser.add_argument("--save_file", default="./result/Score.txt", type=str)
         parser.add_argument("--data_pre_mode", default=0, type=int)
         parser.add_argument("--missing_data_rate", default=0.01, type=float)
         parser.add_argument("--point_ano_rate", default=0.05, type=float)
         parser.add_argument("--seg_ano_rate", default=0.1, type=float)
         parser.add_argument("--eval_all", default=0, type=int)
         parser.add_argument("--condition_emb_dim", default=16, type=int)
-        parser.add_argument("--atten_num", default=4, type=int)
         parser.add_argument("--d_model", default=256, type=int)
         parser.add_argument("--d_inner", default=512, type=int)
-        parser.add_argument("--d_k", default=16, type=int)
         parser.add_argument("--n_head", default=8, type=int)
         parser.add_argument("--kernel_size", default=16, type=int)
         parser.add_argument("--stride", default=8, type=int)
@@ -236,11 +223,12 @@ class MyVAE(LightningModule):
         parser.add_argument("--condition_mode", default=2, type=int)# 2 both local and global
         parser.add_argument("--dropout_rate", default=0.05, type=float)
         parser.add_argument("--gpu", default=0, type=int)
-        parser.add_argument("--use_label", default=1, type=int)
+        parser.add_argument("--use_label", default=0, type=int)
         return parser
 
     def batch_data_augmentation(self, x, y, z):
-        # missing data injection
+        '''missing data injection'''
+
         if self.hp.point_ano_rate > 0:
             x_a, y_a, z_a = data_augment.point_ano(x, y, z, self.hp.point_ano_rate)
             x = torch.cat((x, x_a), dim=0)

@@ -9,14 +9,6 @@ class CVAE(nn.Module):
     def __init__(
         self,
         hp,
-        condition_emb_dim,
-        latent_dim,
-        in_channels,
-        hidden_dims,
-        step_max,
-        window,
-        batch_size,
-        beta: int = 4,
         gamma: float = 1000.0,
         max_capacity: int = 25,
         Capacity_max_iter: int = 1e5,
@@ -24,24 +16,16 @@ class CVAE(nn.Module):
     ):
         super(CVAE, self).__init__()
         self.hp = hp
-        self.condition_emb_dim = 2*self.hp.condition_emb_dim
-        self.latent_dim = latent_dim
-        modules = []
         self.num_iter = 0
-        self.step_max = step_max
-        self.window = window
-        self.batch_size = batch_size
-        self.step_now = 0
-        self.beta = beta
+        self.step_max = 0
         self.gamma = gamma
         self.loss_type = loss_type
         self.C_max = torch.Tensor([max_capacity])
         self.C_stop_iter = Capacity_max_iter
-        in_channels = window + self.condition_emb_dim
-        if hidden_dims is None:
-            hidden_dims = [100, 100]
-        self.hidden_dims = hidden_dims
-        for h_dim in hidden_dims:
+        modules = []
+        in_channels = self.hp.window + 2*self.hp.condition_emb_dim
+        self.hidden_dims = [100, 100]
+        for h_dim in self.hidden_dims:
             modules.append(
                 nn.Sequential(
                     nn.Linear(in_channels, h_dim),
@@ -50,43 +34,35 @@ class CVAE(nn.Module):
             )
             in_channels = h_dim
         self.encoder = nn.Sequential(*modules)
-        self.bn = nn.BatchNorm1d(latent_dim)
-        self.now_dim = int(self.window / (2 ** len(hidden_dims)))
-        self.fc_mu = nn.Linear(hidden_dims[-1], latent_dim)
+        self.fc_mu = nn.Linear(self.hidden_dims[-1], self.hp.latent_dim)
         self.fc_var = nn.Sequential(
-            nn.Linear(hidden_dims[-1], latent_dim),
+            nn.Linear(self.hidden_dims[-1], self.hp.latent_dim),
             nn.Softplus(),
         )
-
         modules = []
-
         self.decoder_input = nn.Linear(
-            latent_dim + self.condition_emb_dim, hidden_dims[-1]
+            self.hp.latent_dim + 2 * self.hp.condition_emb_dim, self.hidden_dims[-1]
         )
-
-        hidden_dims.reverse()
-
-        for i in range(len(hidden_dims) - 1):
+        self.hidden_dims.reverse()
+        for i in range(len(self.hidden_dims) - 1):
             modules.append(
                 nn.Sequential(
-                    nn.Linear(hidden_dims[i], hidden_dims[i + 1]),
+                    nn.Linear(self.hidden_dims[i], self.hidden_dims[i + 1]),
                     nn.Tanh(),
                 )
             )
-
         modules.append(
             nn.Sequential(
-                nn.Linear(hidden_dims[-1], self.window),
+                nn.Linear(self.hidden_dims[-1], self.hp.window),
                 nn.Tanh(),
             )
         )
         self.decoder = nn.Sequential(*modules)
-        self.fc_mu_x = nn.Linear(self.window, self.window)
+        self.fc_mu_x = nn.Linear(self.hp.window, self.hp.window)
         self.fc_var_x = nn.Sequential(
-            nn.Linear(self.window, self.window),
+            nn.Linear(self.hp.window, self.hp.window),
             nn.Softplus()
         )
-
         self.atten = nn.ModuleList(
             [
                 EncoderLayer_selfattn(
@@ -100,18 +76,17 @@ class CVAE(nn.Module):
                 for _ in range(1)
             ]
         )
-        self.in_linear = nn.Sequential(
+        self.emb_local = nn.Sequential(
             nn.Linear(2+self.hp.kernel_size, self.hp.d_model),
             nn.Tanh(),
         )
-        self.condition_emb_dim = self.condition_emb_dim//2
         self.out_linear = nn.Sequential(
-            nn.Linear(self.hp.d_model,self.condition_emb_dim),
+            nn.Linear(self.hp.d_model,self.hp.condition_emb_dim),
             nn.Tanh(),
         )
         self.dropout =nn.Dropout(self.hp.dropout_rate)
-        self.emb = nn.Sequential(
-            nn.Linear(self.hp.window,self.condition_emb_dim),
+        self.emb_global = nn.Sequential(
+            nn.Linear(self.hp.window,self.hp.condition_emb_dim),
             nn.Tanh(),
         )
 
@@ -135,7 +110,7 @@ class CVAE(nn.Module):
         eps = torch.randn_like(std)
         return eps * std + mu
 
-    def forward(self, input, mode, y_all):
+    def forward(self, input, mode, y):
         if mode == "train" or mode == "valid":
             condition = self.get_conditon(input)
             condition = self.dropout(condition)
@@ -143,42 +118,35 @@ class CVAE(nn.Module):
             z = self.reparameterize(mu, var)
             mu_x, var_x = self.decode(torch.cat((z, condition.squeeze(1)), dim=1))
             rec_x = self.reparameterize(mu_x, var_x)
-            loss = self.loss_func(mu_x, var_x, input, mu, var, y_all, z)
+            loss = self.loss_func(mu_x, var_x, input, mu, var, y, z)
             return [mu_x, var_x, rec_x, mu, var, loss]
         else:
-            y_all = y_all.unsqueeze(1)
-            x = input
-            return self.MCMC2(x)
+            y = y.unsqueeze(1)
+            return self.MCMC2(input)
 
     def get_conditon(self, x):
-        x_c =x
-        f_global = torch.fft.rfft(x_c[:,:,:-1],dim=-1)
+        x_g = x
+        f_global = torch.fft.rfft(x_g[:,:,:-1],dim=-1)
         f_global = torch.cat((f_global.real,f_global.imag),dim=-1)
-        f_global = self.emb(f_global)
-        x_c = x_c.view(x.shape[0], 1, 1, -1)
-        x_c_l = x_c.clone()
-        x_c_l[:,:,:,-1] = 0
+        f_global = self.emb_global(f_global)
+        x_g = x_g.view(x.shape[0], 1, 1, -1)
+        x_l = x_g.clone()
+        x_l[:,:,:,-1] = 0
         unfold = nn.Unfold(
             kernel_size=(1, self.hp.kernel_size),
             dilation=1,
             padding=0,
             stride=(1, self.hp.stride),
         )
-        unfold_x = unfold(x_c_l)
+        unfold_x = unfold(x_l)
         unfold_x = unfold_x.transpose(1, 2)
-        freq = torch.fft.rfft(unfold_x, dim=-1)
-        #np.save('./npy/smallwindowfrq_{}.npy'.format(self.hp.data_dir[7:]),(torch.abs(freq)).cpu().detach().numpy())
-        freq = torch.cat((freq.real, freq.imag), dim=-1)
-
-        enc_output = self.in_linear(freq)
+        f_local = torch.fft.rfft(unfold_x, dim=-1)
+        f_local = torch.cat((f_local.real, f_local.imag), dim=-1)
+        f_local = self.emb_local(f_local)
         for enc_layer in self.atten:
-            enc_output, enc_slf_attn = enc_layer(enc_output)
-        # np.save('./npy/atten_{}.npy'.format(self.hp.data_dir[7:]),enc_slf_attn.cpu().detach().numpy())
-        # np.save('./npy/origin_{}.npy'.format(self.hp.data_dir[7:]),x.cpu().detach().numpy())
-        # np.save('./npy/smallwindow_{}.npy'.format(self.hp.data_dir[7:]),unfold_x.cpu().detach().numpy())
-        enc_output = self.out_linear(enc_output)
-        f_local = enc_output[:, -1, :].unsqueeze(1)
-
+            f_local, enc_slf_attn = enc_layer(f_local)
+        f_local = self.out_linear(f_local)
+        f_local = f_local[:, -1, :].unsqueeze(1)
         output = torch.cat((f_global,f_local),-1)
         return output
     
@@ -193,7 +161,7 @@ class CVAE(nn.Module):
             temp = (
                 torch.from_numpy(np.percentile(recon.cpu(), self.hp.mcmc_rate, axis=-1))
                 .unsqueeze(2)
-                .repeat(1, 1, self.window)
+                .repeat(1, 1, self.hp.window)
             ).to("cuda")
             if(self.hp.mcmc_mode==0):
                 l = (temp < recon).int()
@@ -213,7 +181,7 @@ class CVAE(nn.Module):
             prob_all += -0.5 * (torch.log(var_x) + (origin_x - mu_x) ** 2 / var_x)
         return x, prob_all / 128
 
-    def loss_func(self, mu_x, var_x, input, mu, var, y_all, z, mode="nottrain"):
+    def loss_func(self, mu_x, var_x, input, mu, var, y, z, mode="nottrain"):
         if mode == "train":
             self.num_iter += 1
             self.num_iter = self.num_iter % 100
@@ -221,17 +189,15 @@ class CVAE(nn.Module):
         mu_x = mu_x.squeeze(1)
         var_x = var_x.squeeze(1)
         input = input.squeeze(1)
-        w = torch.zeros_like(mu_x)
-        w[:,-1] = 5
         recon_loss = torch.mean(
             0.5
             * torch.mean(
-                y_all * (torch.log(var_x) + (input - mu_x) ** 2 / var_x), dim=1
+                y * (torch.log(var_x) + (input - mu_x) ** 2 / var_x), dim=1
             ),
             dim=0,
         )
-        m = (torch.sum(y_all, dim=1, keepdim=True) / self.window).repeat(
-            1, self.latent_dim
+        m = (torch.sum(y, dim=1, keepdim=True) / self.hp.window).repeat(
+            1, self.hp.latent_dim
         )
         kld_loss = torch.mean(
             0.5

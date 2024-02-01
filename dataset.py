@@ -8,7 +8,7 @@ import datapreprocess
 
 class UniDataset(torch.utils.data.Dataset):
     def __init__(
-        self, window, data_dir, data_name, mode, sliding_window_size, data_pre_mode=0
+        self, use_label, window, data_dir, data_name, mode, sliding_window_size, data_pre_mode=0
     ):
         self.window = window
         self.data_dir = data_dir
@@ -38,9 +38,6 @@ class UniDataset(torch.utils.data.Dataset):
             timestamp, missing, (value, label) = datapreprocess.complete_timestamp(
                 df["timestamp"], (df["value"], df["label"])
             )
-            # unsupervised setting 
-            # if mode == "train":
-            #     value[np.where(label == 1)[0]] = 0
             value = value.astype(float)
             missing2 = np.isnan(value)
             missing = np.logical_or(missing, missing2).astype(int)
@@ -55,20 +52,24 @@ class UniDataset(torch.utils.data.Dataset):
             df2 = df2.fillna(method="bfill")
             df2 = df2.fillna(0)
             df2["label"] = df2["label"].astype(int)
-
             if data_pre_mode == 0:
                 df2["value"], *_ = datapreprocess.standardize_kpi(df2["value"])
             else:
                 v = np.asarray(df2["value"])
                 v = 2 * (v - train_min) / (train_max - train_min) - 1
                 df2["value"] = v
-
             timestamp, values, labels = (
                 np.asarray(df2["timestamp"]),
                 np.clip(np.asarray(df2["value"]), -40, 40),
                 np.asarray(df2["label"]),
             )
             values[np.where(missing == 1)[0]] = 0
+            if (mode == "train" or mode == 'valid') and use_label == 1:
+                values[np.where(labels == 1)[0]] = 0
+            elif (mode == "train" or mode == 'valid') and use_label == 0:
+                labels[:] = 0
+            else:
+                pass
             values = np.convolve(
                 values,
                 np.ones((sliding_window_size,)) / sliding_window_size,
