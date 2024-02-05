@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
 
+
 class EncoderLayer_selfattn(nn.Module):
     """Compose with two layers"""
 

@@ -18,7 +18,7 @@ from sklearn.metrics import roc_auc_score
 
 
 class MyVAE(LightningModule):
-    '''Frequency-enhenced CVAE '''
+    """Frequency-enhenced CVAE"""
 
     def __init__(self, hparams):
         super(MyVAE, self).__init__()
@@ -119,20 +119,24 @@ class MyVAE(LightningModule):
         df["var_x"] = var_x.cpu().numpy().reshape(-1)
         df["y"] = y.cpu().numpy().reshape(-1)
         df["recon"] = score.reshape(-1)
-        np.save('./npy/score.npy',score)
-        np.save('./npy/label.npy',label)
-        if self.hp.data_dir == './data/Yahoo':
-            k=3
-        elif self.hp.data_dir=='./data/NAB' or self.hp.data_dir=='./data/new_NAB':
-            k=150
+        np.save("./npy/score.npy", score)
+        np.save("./npy/label.npy", label)
+        if self.hp.data_dir == "./data/Yahoo":
+            k = 3
+        elif self.hp.data_dir == "./data/NAB" or self.hp.data_dir == "./data/new_NAB":
+            k = 150
         else:
-            k=7
-        auc = roc_auc_score(label,score)
-        delay_f1_score, delay_precison, delay_recall, delay_predict = delay_f1(score, label, k)
+            k = 7
+        auc = roc_auc_score(label, score)
+        delay_f1_score, delay_precison, delay_recall, delay_predict = delay_f1(
+            score, label, k
+        )
         best_f1_socre, best_precison, best_recall, best_predict = best_f1(score, label)
-        best_f1_socre_, best_precison_, best_recall_, best_predict_ = best_f1_without_pointadjust(score, label)
-        df['delay_predict'] = delay_predict
-        df['best_predict'] = best_predict
+        best_f1_socre_, best_precison_, best_recall_, best_predict_ = (
+            best_f1_without_pointadjust(score, label)
+        )
+        df["delay_predict"] = delay_predict
+        df["best_predict"] = best_predict
         df.to_csv(
             "./csv/result.csv",
             index=False,
@@ -151,7 +155,7 @@ class MyVAE(LightningModule):
                     delay_recall,
                     best_f1_socre_,
                     best_precison_,
-                    best_recall_
+                    best_recall_,
                 )
             )
 
@@ -219,15 +223,17 @@ class MyVAE(LightningModule):
         parser.add_argument("--stride", default=8, type=int)
         parser.add_argument("--mcmc_rate", default=0.2, type=float)
         parser.add_argument("--mcmc_value", default=-5, type=float)
-        parser.add_argument("--mcmc_mode", default=2, type=int)#0 is rate 2 default
-        parser.add_argument("--condition_mode", default=2, type=int)# 2 both local and global
+        parser.add_argument("--mcmc_mode", default=2, type=int)  # 0 is rate 2 default
+        parser.add_argument(
+            "--condition_mode", default=2, type=int
+        )  # 2 both local and global
         parser.add_argument("--dropout_rate", default=0.05, type=float)
         parser.add_argument("--gpu", default=0, type=int)
         parser.add_argument("--use_label", default=0, type=int)
         return parser
 
     def batch_data_augmentation(self, x, y, z):
-        '''missing data injection'''
+        """missing data injection"""
 
         if self.hp.point_ano_rate > 0:
             x_a, y_a, z_a = data_augment.point_ano(x, y, z, self.hp.point_ano_rate)

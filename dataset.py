@@ -6,9 +6,17 @@ import pandas as pd
 import os
 import datapreprocess
 
+
 class UniDataset(torch.utils.data.Dataset):
     def __init__(
-        self, use_label, window, data_dir, data_name, mode, sliding_window_size, data_pre_mode=0
+        self,
+        use_label,
+        window,
+        data_dir,
+        data_name,
+        mode,
+        sliding_window_size,
+        data_pre_mode=0,
     ):
         self.window = window
         self.data_dir = data_dir
@@ -64,9 +72,9 @@ class UniDataset(torch.utils.data.Dataset):
                 np.asarray(df2["label"]),
             )
             values[np.where(missing == 1)[0]] = 0
-            if (mode == "train" or mode == 'valid') and use_label == 1:
+            if (mode == "train" or mode == "valid") and use_label == 1:
                 values[np.where(labels == 1)[0]] = 0
-            elif (mode == "train" or mode == 'valid') and use_label == 0:
+            elif (mode == "train" or mode == "valid") and use_label == 0:
                 labels[:] = 0
             else:
                 pass

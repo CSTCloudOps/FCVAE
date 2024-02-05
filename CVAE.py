@@ -5,6 +5,8 @@ from torch import nn
 from torch.nn import functional as F
 from Attention import EncoderLayer_selfattn
 import pywt
+
+
 class CVAE(nn.Module):
     def __init__(
         self,
@@ -23,7 +25,7 @@ class CVAE(nn.Module):
         self.C_max = torch.Tensor([max_capacity])
         self.C_stop_iter = Capacity_max_iter
         modules = []
-        in_channels = self.hp.window + 2*self.hp.condition_emb_dim
+        in_channels = self.hp.window + 2 * self.hp.condition_emb_dim
         self.hidden_dims = [100, 100]
         for h_dim in self.hidden_dims:
             modules.append(
@@ -60,8 +62,7 @@ class CVAE(nn.Module):
         self.decoder = nn.Sequential(*modules)
         self.fc_mu_x = nn.Linear(self.hp.window, self.hp.window)
         self.fc_var_x = nn.Sequential(
-            nn.Linear(self.hp.window, self.hp.window),
-            nn.Softplus()
+            nn.Linear(self.hp.window, self.hp.window), nn.Softplus()
         )
         self.atten = nn.ModuleList(
             [
@@ -77,16 +78,16 @@ class CVAE(nn.Module):
             ]
         )
         self.emb_local = nn.Sequential(
-            nn.Linear(2+self.hp.kernel_size, self.hp.d_model),
+            nn.Linear(2 + self.hp.kernel_size, self.hp.d_model),
             nn.Tanh(),
         )
         self.out_linear = nn.Sequential(
-            nn.Linear(self.hp.d_model,self.hp.condition_emb_dim),
+            nn.Linear(self.hp.d_model, self.hp.condition_emb_dim),
             nn.Tanh(),
         )
-        self.dropout =nn.Dropout(self.hp.dropout_rate)
+        self.dropout = nn.Dropout(self.hp.dropout_rate)
         self.emb_global = nn.Sequential(
-            nn.Linear(self.hp.window,self.hp.condition_emb_dim),
+            nn.Linear(self.hp.window, self.hp.condition_emb_dim),
             nn.Tanh(),
         )
 
@@ -126,12 +127,12 @@ class CVAE(nn.Module):
 
     def get_conditon(self, x):
         x_g = x
-        f_global = torch.fft.rfft(x_g[:,:,:-1],dim=-1)
-        f_global = torch.cat((f_global.real,f_global.imag),dim=-1)
+        f_global = torch.fft.rfft(x_g[:, :, :-1], dim=-1)
+        f_global = torch.cat((f_global.real, f_global.imag), dim=-1)
         f_global = self.emb_global(f_global)
         x_g = x_g.view(x.shape[0], 1, 1, -1)
         x_l = x_g.clone()
-        x_l[:,:,:,-1] = 0
+        x_l[:, :, :, -1] = 0
         unfold = nn.Unfold(
             kernel_size=(1, self.hp.kernel_size),
             dilation=1,
@@ -147,9 +148,9 @@ class CVAE(nn.Module):
             f_local, enc_slf_attn = enc_layer(f_local)
         f_local = self.out_linear(f_local)
         f_local = f_local[:, -1, :].unsqueeze(1)
-        output = torch.cat((f_global,f_local),-1)
+        output = torch.cat((f_global, f_local), -1)
         return output
-    
+
     def MCMC2(self, x):
         condition = self.get_conditon(x)
         origin_x = x.clone()
@@ -163,16 +164,16 @@ class CVAE(nn.Module):
                 .unsqueeze(2)
                 .repeat(1, 1, self.hp.window)
             ).to("cuda")
-            if(self.hp.mcmc_mode==0):
+            if self.hp.mcmc_mode == 0:
                 l = (temp < recon).int()
                 x = mu_x * (1 - l) + origin_x * l
-            if(self.hp.mcmc_mode==1):
+            if self.hp.mcmc_mode == 1:
                 l = (self.hp.mcmc_value < recon).int()
-                x = origin_x * l+mu_x * (1 - l)
-            if(self.hp.mcmc_mode==2):
+                x = origin_x * l + mu_x * (1 - l)
+            if self.hp.mcmc_mode == 2:
                 l = torch.ones_like(origin_x)
-                l[:,:,-1]=0
-                x = origin_x*l +(1-l)*mu_x
+                l[:, :, -1] = 0
+                x = origin_x * l + (1 - l) * mu_x
         prob_all = 0
         mu, var = self.encode(torch.cat((x, condition), dim=2))
         for i in range(128):
@@ -191,17 +192,14 @@ class CVAE(nn.Module):
         input = input.squeeze(1)
         recon_loss = torch.mean(
             0.5
-            * torch.mean(
-                y * (torch.log(var_x) + (input - mu_x) ** 2 / var_x), dim=1
-            ),
+            * torch.mean(y * (torch.log(var_x) + (input - mu_x) ** 2 / var_x), dim=1),
             dim=0,
         )
         m = (torch.sum(y, dim=1, keepdim=True) / self.hp.window).repeat(
             1, self.hp.latent_dim
         )
         kld_loss = torch.mean(
-            0.5
-            * torch.mean(m * (z**2) - torch.log(var) - (z - mu) ** 2 / var, dim=1),
+            0.5 * torch.mean(m * (z**2) - torch.log(var) - (z - mu) ** 2 / var, dim=1),
             dim=0,
         )
         if self.loss_type == "B":

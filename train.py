@@ -16,6 +16,7 @@ np.random.seed(SEED)
 
 logger = TensorBoardLogger(name="logs", save_dir="./")
 
+
 def main(hparams):
     print("loading model...")
     model = MyVAE(hparams)
@@ -36,7 +37,7 @@ def main(hparams):
         accelerator="gpu",
         gpus=[hparams.gpu],
         check_val_every_n_epoch=1,
-        gradient_clip_algorithm='value',
+        gradient_clip_algorithm="value",
         gradient_clip_val=2,
     )
     print("fit start")

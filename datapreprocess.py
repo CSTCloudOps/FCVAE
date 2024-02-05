@@ -1,6 +1,6 @@
 import numpy as np
 
-__all__ = ['complete_timestamp', 'standardize_kpi']
+__all__ = ["complete_timestamp", "standardize_kpi"]
 
 
 def complete_timestamp(timestamp, arrays=None):
@@ -22,38 +22,43 @@ def complete_timestamp(timestamp, arrays=None):
     """
     timestamp = np.asarray(timestamp, np.int64)
     if len(timestamp.shape) != 1:
-        raise ValueError('`timestamp` must be a 1-D array')
+        raise ValueError("`timestamp` must be a 1-D array")
 
     has_arrays = arrays is not None
     arrays = [np.asarray(array) for array in (arrays or ())]
     for i, array in enumerate(arrays):
         if array.shape != timestamp.shape:
-            raise ValueError('The shape of ``arrays[{}]`` does not agree with '
-                             'the shape of `timestamp` ({} vs {})'.
-                             format(i, array.shape, timestamp.shape))
+            raise ValueError(
+                "The shape of ``arrays[{}]`` does not agree with "
+                "the shape of `timestamp` ({} vs {})".format(
+                    i, array.shape, timestamp.shape
+                )
+            )
     src_index = np.argsort(timestamp)
     timestamp_sorted = timestamp[src_index]
     intervals = np.unique(np.diff(timestamp_sorted))
     interval = np.min(intervals)
     if interval == 0:
-        raise ValueError('Duplicated values in `timestamp`')
+        raise ValueError("Duplicated values in `timestamp`")
     for itv in intervals:
         if itv % interval != 0:
-            raise ValueError('Not all intervals in `timestamp` are multiples '
-                             'of the minimum interval')
+            raise ValueError(
+                "Not all intervals in `timestamp` are multiples "
+                "of the minimum interval"
+            )
 
     # prepare for the return arrays
     length = (timestamp_sorted[-1] - timestamp_sorted[0]) // interval + 1
-    ret_timestamp = np.arange(timestamp_sorted[0],
-                              timestamp_sorted[-1] + interval,
-                              interval,
-                              dtype=np.int64)
+    ret_timestamp = np.arange(
+        timestamp_sorted[0], timestamp_sorted[-1] + interval, interval, dtype=np.int64
+    )
     ret_missing = np.ones([length], dtype=np.int32)
     ret_arrays = [np.zeros([length], dtype=array.dtype) for array in arrays]
 
     # copy values to the return arrays
-    dst_index = np.asarray((timestamp_sorted - timestamp_sorted[0]) // interval,
-                           dtype=np.int32)
+    dst_index = np.asarray(
+        (timestamp_sorted - timestamp_sorted[0]) // interval, dtype=np.int32
+    )
     ret_missing[dst_index] = 0
     for ret_array, array in zip(ret_arrays, arrays):
         ret_array[dst_index] = array[src_index]
@@ -88,15 +93,16 @@ def standardize_kpi(values, mean=None, std=None, excludes=None):
     """
     values = np.asarray(values, dtype=np.float32)
     if len(values.shape) != 1:
-        raise ValueError('`values` must be a 1-D array')
+        raise ValueError("`values` must be a 1-D array")
     if (mean is None) != (std is None):
-        raise ValueError('`mean` and `std` must be both None or not None')
+        raise ValueError("`mean` and `std` must be both None or not None")
     if excludes is not None:
         excludes = np.asarray(excludes, dtype=np.bool)
         if excludes.shape != values.shape:
-            raise ValueError('The shape of `excludes` does not agree with '
-                             'the shape of `values` ({} vs {})'.
-                             format(excludes.shape, values.shape))
+            raise ValueError(
+                "The shape of `excludes` does not agree with "
+                "the shape of `values` ({} vs {})".format(excludes.shape, values.shape)
+            )
 
     if mean is None:
         if excludes is not None:
